@@ -1,29 +1,28 @@
-
 import io
 import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Comparador de CSV", layout="wide")
 st.title("Comparador de archivos CSV")
-st.caption("Sube dos archivos CSV, elige la columna clave y descarga un Excel con las diferencias.")
+st.caption("Sube dos archivos CSV, elige el separador y descarga un Excel con las diferencias.")
 
-def read_csv_flexible(uploaded_file):
+def read_csv_with_option(uploaded_file, sep_option):
     raw = uploaded_file.getvalue()
     encodings = ["utf-8", "utf-8-sig", "latin-1", "cp1252"]
-    seps = [None, ";", ","]
     last_error = None
 
     for enc in encodings:
-        for sep in seps:
-            try:
-                if sep is None:
-                    df = pd.read_csv(io.BytesIO(raw), encoding=enc, sep=None, engine="python")
-                else:
-                    df = pd.read_csv(io.BytesIO(raw), encoding=enc, sep=sep)
-                if len(df.columns) > 1:
-                    return df
-            except Exception as e:
-                last_error = e
+        try:
+            if sep_option == "Automático":
+                df = pd.read_csv(io.BytesIO(raw), encoding=enc, sep=None, engine="python")
+            elif sep_option == "Punto y coma (;)":
+                df = pd.read_csv(io.BytesIO(raw), encoding=enc, sep=";")
+            else:
+                df = pd.read_csv(io.BytesIO(raw), encoding=enc, sep=",")
+            return df
+        except Exception as e:
+            last_error = e
+
     raise last_error
 
 def normalize_df(df):
@@ -62,14 +61,12 @@ def compare_dataframes(df1, df2, key):
         row1 = df1.loc[idx]
         row2 = df2.loc[idx]
         diferencias = {}
+
         for col in common_cols:
-            v1 = row1[col]
-            v2 = row2[col]
-            if pd.isna(v1):
-                v1 = ""
-            if pd.isna(v2):
-                v2 = ""
-            if str(v1) != str(v2):
+            v1 = "" if pd.isna(row1[col]) else str(row1[col])
+            v2 = "" if pd.isna(row2[col]) else str(row2[col])
+
+            if v1 != v2:
                 diferencias[f"{col}_archivo_1"] = v1
                 diferencias[f"{col}_archivo_2"] = v2
 
@@ -79,10 +76,7 @@ def compare_dataframes(df1, df2, key):
         else:
             iguales.append({key: idx})
 
-    df_iguales = pd.DataFrame(iguales)
-    df_cambios = pd.DataFrame(cambios)
-
-    return df_iguales, df_cambios, only_1, only_2
+    return pd.DataFrame(iguales), pd.DataFrame(cambios), only_1, only_2
 
 def to_excel_bytes(resumen, iguales, cambios, solo1, solo2):
     output = io.BytesIO()
@@ -96,15 +90,27 @@ def to_excel_bytes(resumen, iguales, cambios, solo1, solo2):
     return output.getvalue()
 
 file1 = st.file_uploader("Archivo 1", type=["csv"])
+sep1 = st.selectbox("Separador archivo 1", ["Automático", "Punto y coma (;)", "Coma (,)"], index=0)
+
 file2 = st.file_uploader("Archivo 2", type=["csv"])
+sep2 = st.selectbox("Separador archivo 2", ["Automático", "Punto y coma (;)", "Coma (,)"], index=0)
 
 if file1 and file2:
     try:
-        df1 = normalize_df(read_csv_flexible(file1))
-        df2 = normalize_df(read_csv_flexible(file2))
+        df1 = normalize_df(read_csv_with_option(file1, sep1))
+        df2 = normalize_df(read_csv_with_option(file2, sep2))
     except Exception as e:
         st.error(f"No pude leer alguno de los archivos: {e}")
         st.stop()
+
+    st.subheader("Vista previa")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.write(f"Archivo 1: {len(df1)} filas y {len(df1.columns)} columnas")
+        st.dataframe(df1.head(10), use_container_width=True)
+    with c2:
+        st.write(f"Archivo 2: {len(df2)} filas y {len(df2.columns)} columnas")
+        st.dataframe(df2.head(10), use_container_width=True)
 
     comunes = [c for c in df1.columns if c in df2.columns]
 
@@ -112,23 +118,7 @@ if file1 and file2:
         st.error("No encontré columnas en común entre ambos archivos.")
         st.stop()
 
-    sugeridas = ["id", "dni", "nif", "nie", "cif", "codigo", "cod", "alumno"]
-    key_default = 0
-    for i, c in enumerate(comunes):
-        if c in sugeridas:
-            key_default = i
-            break
-
-    st.subheader("Vista previa")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.write("Archivo 1")
-        st.dataframe(df1.head(10), use_container_width=True)
-    with c2:
-        st.write("Archivo 2")
-        st.dataframe(df2.head(10), use_container_width=True)
-
-    key = st.selectbox("Columna clave para comparar", comunes, index=key_default)
+    key = st.selectbox("Columna clave para comparar", comunes)
 
     if st.button("Comparar"):
         iguales, cambios, solo1, solo2 = compare_dataframes(df1, df2, key)
@@ -160,6 +150,5 @@ if file1 and file2:
             file_name="resultado_comparacion.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
 else:
     st.info("Sube los dos archivos CSV para empezar.")
