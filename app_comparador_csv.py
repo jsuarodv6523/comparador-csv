@@ -60,7 +60,11 @@ def compare_dataframes(df1, df2, key):
     for idx in common_ids:
         row1 = df1.loc[idx]
         row2 = df2.loc[idx]
-        diferencias = {}
+        diferencias = {
+    "codigo_centro": row1.get("codigo_centro", ""),
+    "etapa": row1.get("etapa", ""),
+    "nombre_centro": row1.get("nombre_centro", "")
+}
 
         for col in common_cols:
             v1 = "" if pd.isna(row1[col]) else str(row1[col])
